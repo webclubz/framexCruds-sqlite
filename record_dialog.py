@@ -54,10 +54,10 @@ class RecordDialog(QDialog):
         form_widget = QWidget()
         scroll.setWidget(form_widget)
 
-        # Switch to vertical field layout: label above input, consistent spacing
+        # Simple vertical layout with direct label and widget additions
         self.form_layout = QVBoxLayout(form_widget)
-        self.form_layout.setSpacing(2)
-        self.form_layout.setContentsMargins(10, 10, 10, 10)
+        self.form_layout.setSpacing(0)
+        self.form_layout.setContentsMargins(15, 15, 15, 15)
 
         # Create form fields
         for field in self.fields:
@@ -71,18 +71,15 @@ class RecordDialog(QDialog):
             if field['is_required']:
                 label_text += " *"
 
-            # Wrap each field into its own vertical container
-            field_container = QWidget()
-            field_layout = QVBoxLayout(field_container)
-            field_layout.setContentsMargins(0, 0, 0, 0)
-            field_layout.setSpacing(2)
-
             label = QLabel(label_text)
             label.setObjectName('FormFieldLabel')
-            field_layout.addWidget(label)
-            field_layout.addWidget(widget)
 
-            self.form_layout.addWidget(field_container)
+            # Add label and widget directly to form
+            self.form_layout.addWidget(label)
+            self.form_layout.addWidget(widget)
+
+            # Add spacing after each field group
+            self.form_layout.addSpacing(12)
 
         # Buttons
         btn_layout = QHBoxLayout()

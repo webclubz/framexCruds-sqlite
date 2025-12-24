@@ -13,8 +13,9 @@ QScrollArea { background: #fafafa; border: none; }
 QLabel#FormFieldLabel {
   font-weight: 600;
   color: #333;
-  /* tighter gap between label and input */
-  margin: 4px 2px 2px 2px;
+  /* minimal gap between label and input */
+  margin: 0px 0px 3px 0px;
+  padding: 0px;
 }
 
 /* Inputs */
@@ -23,7 +24,7 @@ QLineEdit, QTextEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox, QListWidge
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   padding: 6px 8px;
-  margin-top: 2px; /* reduce gap from label */
+  margin: 0px; /* zero margin on all sides */
 }
 
 QTextEdit { padding: 8px; }
