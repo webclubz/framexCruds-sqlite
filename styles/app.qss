@@ -1,0 +1,78 @@
+/* Minimal, clean application stylesheet */
+
+/* Base */
+QWidget {
+  font-family: 'DejaVu Sans', Arial, sans-serif;
+  font-size: 13px; /* slightly larger base font */
+  color: #222;
+}
+
+QScrollArea { background: #fafafa; border: none; }
+
+/* Labels */
+QLabel#FormFieldLabel {
+  font-weight: 600;
+  color: #333;
+  /* tighter gap between label and input */
+  margin: 4px 2px 2px 2px;
+}
+
+/* Inputs */
+QLineEdit, QTextEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox, QListWidget {
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-top: 2px; /* reduce gap from label */
+}
+
+QTextEdit { padding: 8px; }
+QListWidget { padding: 4px; }
+
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QListWidget:focus {
+  border: 1px solid #7aa7d9;
+  outline: none;
+}
+
+/* Buttons */
+QPushButton {
+  background: #f3f3f3;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+
+QPushButton:hover { background: #eaeaea; }
+QPushButton:pressed { background: #e2e2e2; }
+
+/* Group boxes */
+QGroupBox {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+QGroupBox::title {
+  subcontrol-origin: margin;
+  left: 10px;
+  padding: 0 4px;
+  color: #444;
+}
+
+/* Tables */
+QTableWidget {
+  gridline-color: #e0e0e0;
+  selection-background-color: #d9e8fb;
+  selection-color: #111;
+}
+QHeaderView::section {
+  background: #f5f5f5;
+  padding: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+/* Record dialog image preview */
+QLabel#ImagePreview {
+  border: 1px solid #e0e0e0;
+  background: #f6f6f6;
+  border-radius: 6px;
+}
