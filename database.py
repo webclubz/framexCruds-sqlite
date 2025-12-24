@@ -6,6 +6,7 @@ import sqlite3
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import unicodedata
 import config
 
 
@@ -27,7 +28,25 @@ class DatabaseManager:
         def unicode_lower(text):
             return text.lower() if text else text
 
+        # Create custom function to remove accents/tonos for Greek text search
+        def remove_accents(text):
+            if not text:
+                return text
+            # Normalize to NFD (decomposed form) and remove combining marks
+            nfd = unicodedata.normalize('NFD', text)
+            return ''.join(char for char in nfd if unicodedata.category(char) != 'Mn')
+
+        # Create combined function for case-insensitive, accent-insensitive search
+        def normalize_search(text):
+            if not text:
+                return text
+            # First remove accents, then lowercase
+            no_accents = remove_accents(text)
+            return no_accents.lower()
+
         self.connection.create_function("UNICODE_LOWER", 1, unicode_lower)
+        self.connection.create_function("REMOVE_ACCENTS", 1, remove_accents)
+        self.connection.create_function("NORMALIZE_SEARCH", 1, normalize_search)
 
     def close(self):
         """Close database connection"""
@@ -273,13 +292,98 @@ class DatabaseManager:
 
     def search_records(self, table_name: str, fields: List[str],
                       search_term: str) -> List[Dict[str, Any]]:
-        """Search records across multiple fields (case-insensitive with Unicode support)"""
+        """Search records across multiple fields (case-insensitive, accent-insensitive with Unicode support)"""
         if not fields or not search_term:
             return self.get_records(table_name)
 
-        where_parts = [f"UNICODE_LOWER({field}) LIKE UNICODE_LOWER(?)" for field in fields]
+        where_parts = [f"NORMALIZE_SEARCH({field}) LIKE NORMALIZE_SEARCH(?)" for field in fields]
         where_clause = ' OR '.join(where_parts)
         where_params = tuple([f"%{search_term}%" for _ in fields])
 
         return self.get_records(table_name, where_clause=where_clause,
                                where_params=where_params)
+
+    def filter_records(self, table_name: str, filters: dict) -> List[Dict[str, Any]]:
+        """Filter records based on advanced filter criteria"""
+        if not filters:
+            return self.get_records(table_name)
+
+        where_parts = []
+        where_params = []
+
+        for field_name, filter_config in filters.items():
+            filter_type = filter_config['type']
+
+            if filter_type == 'text':
+                where_parts.append(f"NORMALIZE_SEARCH({field_name}) LIKE NORMALIZE_SEARCH(?)")
+                where_params.append(f"%{filter_config['value']}%")
+
+            elif filter_type == 'number_range':
+                if filter_config.get('min') is not None:
+                    where_parts.append(f"{field_name} >= ?")
+                    where_params.append(filter_config['min'])
+                if filter_config.get('max') is not None:
+                    where_parts.append(f"{field_name} <= ?")
+                    where_params.append(filter_config['max'])
+
+            elif filter_type == 'date_range':
+                if filter_config.get('from') is not None:
+                    where_parts.append(f"{field_name} >= ?")
+                    where_params.append(filter_config['from'])
+                if filter_config.get('to') is not None:
+                    where_parts.append(f"{field_name} <= ?")
+                    where_params.append(filter_config['to'])
+
+            elif filter_type == 'boolean':
+                where_parts.append(f"{field_name} = ?")
+                where_params.append(1 if filter_config['value'] else 0)
+
+            elif filter_type == 'dropdown':
+                where_parts.append(f"{field_name} = ?")
+                where_params.append(filter_config['value'])
+
+            elif filter_type == 'reference':
+                # Handle reference field by searching in the referenced table
+                search_value = filter_config['value']
+                field_metadata = filter_config.get('field')
+
+                if field_metadata and field_metadata.get('reference_table_id'):
+                    # Get the referenced table
+                    ref_table = self.get_table(field_metadata['reference_table_id'])
+                    if ref_table:
+                        ref_table_name = ref_table['name']
+
+                        # Find matching IDs in the referenced table
+                        # Search across all text-like fields in the referenced table
+                        ref_fields = self.get_fields(field_metadata['reference_table_id'])
+                        searchable_ref_fields = [f['name'] for f in ref_fields
+                                                if f['field_type'] in ['text', 'email', 'url', 'phone', 'richtext']]
+
+                        if searchable_ref_fields:
+                            # Build search query for referenced table (accent-insensitive)
+                            ref_where_parts = [f"NORMALIZE_SEARCH({f}) LIKE NORMALIZE_SEARCH(?)"
+                                             for f in searchable_ref_fields]
+                            ref_where_clause = ' OR '.join(ref_where_parts)
+                            ref_where_params = tuple([f"%{search_value}%" for _ in searchable_ref_fields])
+
+                            # Get matching records from referenced table
+                            matching_refs = self.get_records(ref_table_name,
+                                                            where_clause=ref_where_clause,
+                                                            where_params=ref_where_params)
+
+                            if matching_refs:
+                                # Get all matching IDs
+                                matching_ids = [str(r['id']) for r in matching_refs]
+                                # Create IN clause
+                                placeholders = ','.join(['?' for _ in matching_ids])
+                                where_parts.append(f"{field_name} IN ({placeholders})")
+                                where_params.extend(matching_ids)
+                            else:
+                                # No matches found, add impossible condition
+                                where_parts.append("1 = 0")
+
+        where_clause = ' AND '.join(where_parts) if where_parts else None
+        where_params_tuple = tuple(where_params) if where_params else None
+
+        return self.get_records(table_name, where_clause=where_clause,
+                               where_params=where_params_tuple)

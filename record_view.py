@@ -3,11 +3,13 @@ Record view for displaying and managing records in a table
 """
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTableWidget, QTableWidgetItem, QLineEdit, QLabel,
-                             QMessageBox, QHeaderView, QComboBox, QSpinBox)
+                             QMessageBox, QHeaderView, QComboBox, QSpinBox,
+                             QFileDialog)
 from PyQt6.QtCore import Qt
 from database import DatabaseManager
 from storage import StorageManager
 import json
+import csv
 
 
 class RecordView(QWidget):
@@ -24,6 +26,7 @@ class RecordView(QWidget):
         self.total_records = 0
         self.sort_column = 'id'
         self.sort_order = 'ASC'
+        self.active_filters = {}
 
         self.init_ui()
         self.load_fields()
@@ -50,6 +53,11 @@ class RecordView(QWidget):
         clear_btn = QPushButton("Clear")
         clear_btn.clicked.connect(self.clear_search)
         toolbar.addWidget(clear_btn)
+
+        # Advanced filter button
+        filter_btn = QPushButton("Advanced Filter")
+        filter_btn.clicked.connect(self.show_filter_dialog)
+        toolbar.addWidget(filter_btn)
 
         toolbar.addStretch()
 
@@ -106,6 +114,13 @@ class RecordView(QWidget):
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.clicked.connect(self.delete_record)
         bottom_toolbar.addWidget(self.btn_delete)
+
+        bottom_toolbar.addSpacing(10)
+
+        # Export button
+        self.btn_export = QPushButton("Export to CSV")
+        self.btn_export.clicked.connect(self.export_to_csv)
+        bottom_toolbar.addWidget(self.btn_export)
 
         layout.addLayout(bottom_toolbar)
 
@@ -339,8 +354,51 @@ class RecordView(QWidget):
     def clear_search(self):
         """Clear search and reload all records"""
         self.search_input.clear()
+        self.active_filters = {}
         self.current_page = 0
         self.load_records()
+
+    def show_filter_dialog(self):
+        """Show advanced filter dialog"""
+        from filter_dialog import FilterDialog
+
+        dialog = FilterDialog(self.fields, parent=self)
+        if dialog.exec():
+            self.active_filters = dialog.get_filters()
+            self.apply_filters()
+
+    def apply_filters(self):
+        """Apply active filters to records"""
+        if not self.active_filters:
+            self.load_records()
+            return
+
+        # Clear search input when using filters
+        self.search_input.clear()
+
+        # Get filtered records
+        records = self.db.filter_records(self.table_name, self.active_filters)
+
+        # Display results
+        self.records_table.setRowCount(len(records))
+
+        for row_idx, record in enumerate(records):
+            id_item = QTableWidgetItem(str(record['id']))
+            id_item.setData(Qt.ItemDataRole.UserRole, record['id'])
+            self.records_table.setItem(row_idx, 0, id_item)
+
+            for col_idx, field in enumerate(self.visible_fields):
+                value = record.get(field['name'], '')
+                display_value = self.format_field_value(field, value)
+
+                item = QTableWidgetItem(display_value)
+                self.records_table.setItem(row_idx, col_idx + 1, item)
+
+        # Disable pagination during filter
+        self.btn_prev.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        filter_count = len(self.active_filters)
+        self.page_label.setText(f"{len(records)} results ({filter_count} filter{'s' if filter_count > 1 else ''} active)")
 
     def add_record(self):
         """Add a new record"""
@@ -412,3 +470,70 @@ class RecordView(QWidget):
             self.db.delete_record(self.table_name, record_id)
 
             self.load_records()
+
+    def export_to_csv(self):
+        """Export current records to CSV file"""
+        # Get the current records to export
+        if self.active_filters:
+            # Export filtered records
+            records = self.db.filter_records(self.table_name, self.active_filters)
+            default_filename = f"{self.table_name}_filtered_export.csv"
+        elif self.search_input.text().strip():
+            # Export search results
+            search_term = self.search_input.text().strip()
+            searchable_fields = [f['name'] for f in self.fields
+                                if f['field_type'] in ['text', 'email', 'url', 'phone', 'richtext']]
+            records = self.db.search_records(self.table_name, searchable_fields, search_term)
+            default_filename = f"{self.table_name}_search_export.csv"
+        else:
+            # Export all records
+            records = self.db.get_records(self.table_name, limit=999999)
+            default_filename = f"{self.table_name}_export.csv"
+
+        if not records:
+            QMessageBox.information(self, "Export", "No records to export")
+            return
+
+        # Ask user for file location
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export to CSV",
+            default_filename,
+            "CSV Files (*.csv)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                # Use visible fields for export
+                field_names = ['ID'] + [f['display_name'] for f in self.visible_fields]
+                writer = csv.DictWriter(csvfile, fieldnames=field_names)
+
+                # Write header
+                writer.writeheader()
+
+                # Write records
+                for record in records:
+                    row = {'ID': record['id']}
+                    for field in self.visible_fields:
+                        value = record.get(field['name'], '')
+                        # Format the value for CSV
+                        display_value = self.format_field_value(field, value)
+                        row[field['display_name']] = display_value
+
+                    writer.writerow(row)
+
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Exported {len(records)} record(s) to:\n{file_path}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Failed to export records:\n{str(e)}"
+            )
