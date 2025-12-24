@@ -81,6 +81,9 @@ class RecordDialog(QDialog):
             # Add spacing after each field group
             self.form_layout.addSpacing(12)
 
+        # Add stretch at the end to push all fields to the top
+        self.form_layout.addStretch()
+
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(5)
