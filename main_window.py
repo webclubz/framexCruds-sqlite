@@ -111,15 +111,26 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        export_action = QAction("Export Data", self)
+        import_action = QAction("Import Data from CSV...", self)
+        import_action.setShortcut("Ctrl+I")
+        import_action.triggered.connect(self.import_csv_data)
+        file_menu.addAction(import_action)
+
+        export_template_action = QAction("Export Import Template...", self)
+        export_template_action.setShortcut("Ctrl+Shift+T")
+        export_template_action.triggered.connect(self.export_import_template)
+        file_menu.addAction(export_template_action)
+
+        file_menu.addSeparator()
+
+        export_action = QAction("Export Database", self)
         export_action.setShortcut("Ctrl+E")
         export_action.triggered.connect(self.export_data)
         file_menu.addAction(export_action)
 
-        import_action = QAction("Import Data", self)
-        import_action.setShortcut("Ctrl+I")
-        import_action.triggered.connect(self.import_data)
-        file_menu.addAction(import_action)
+        import_db_action = QAction("Import Database", self)
+        import_db_action.triggered.connect(self.import_data)
+        file_menu.addAction(import_db_action)
 
         file_menu.addSeparator()
 
@@ -370,6 +381,42 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", f"Failed to import data:\n{str(e)}")
+
+    def import_csv_data(self):
+        """Import data from CSV with field mapping"""
+        if not self.db:
+            QMessageBox.warning(self, "No Database", "Please open or create a database first")
+            return
+
+        if not self.current_table_id:
+            QMessageBox.warning(self, "No Table Selected", "Please select a table first")
+            return
+
+        # Get current view to call import
+        current_view = self.content_stack.currentWidget()
+        if hasattr(current_view, 'import_data'):
+            current_view.import_data()
+        else:
+            QMessageBox.warning(self, "Import Not Available",
+                              "Please select a table to import data into")
+
+    def export_import_template(self):
+        """Export a CSV template for easy data entry"""
+        if not self.db:
+            QMessageBox.warning(self, "No Database", "Please open or create a database first")
+            return
+
+        if not self.current_table_id:
+            QMessageBox.warning(self, "No Table Selected", "Please select a table first")
+            return
+
+        # Get current view to call export template
+        current_view = self.content_stack.currentWidget()
+        if hasattr(current_view, 'export_template'):
+            current_view.export_template()
+        else:
+            QMessageBox.warning(self, "Export Not Available",
+                              "Please select a table to export a template for")
 
     def backup_database(self):
         """Backup the database"""

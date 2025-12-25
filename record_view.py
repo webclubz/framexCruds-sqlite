@@ -122,6 +122,11 @@ class RecordView(QWidget):
         self.btn_export.clicked.connect(self.export_to_csv)
         bottom_toolbar.addWidget(self.btn_export)
 
+        # Report button
+        self.btn_report = QPushButton("Generate Report")
+        self.btn_report.clicked.connect(self.generate_report)
+        bottom_toolbar.addWidget(self.btn_report)
+
         layout.addLayout(bottom_toolbar)
 
     def load_fields(self):
@@ -537,3 +542,127 @@ class RecordView(QWidget):
                 "Export Failed",
                 f"Failed to export records:\n{str(e)}"
             )
+
+    def generate_report(self):
+        """Generate a custom report"""
+        from report_builder import ReportBuilderDialog
+        from report_viewer import ReportViewerDialog
+
+        # Get table display name
+        table = self.db.get_table(self.table_id)
+        table_display_name = table['display_name'] if table else self.table_name
+
+        # Show report builder dialog
+        builder = ReportBuilderDialog(
+            self.db,
+            self.storage,
+            self.table_id,
+            self.table_name,
+            table_display_name,
+            self.fields,
+            parent=self
+        )
+
+        if builder.exec():
+            # Get report configuration
+            config = builder.get_report_config()
+
+            # Show report viewer
+            viewer = ReportViewerDialog(
+                self.db,
+                self.storage,
+                self.table_id,
+                self.table_name,
+                table_display_name,
+                self.fields,
+                config,
+                parent=self
+            )
+            viewer.exec()
+
+    def export_template(self):
+        """Export a blank CSV template for data entry"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Import Template",
+            f"{self.table_name}_template.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                # Use all non-ID fields for template
+                template_fields = [f for f in self.fields if f['name'] != 'id']
+                field_names = [f['display_name'] for f in template_fields]
+                writer = csv.DictWriter(csvfile, fieldnames=field_names)
+
+                # Write header
+                writer.writeheader()
+
+                # Write one example row with field type hints
+                example_row = {}
+                for field in template_fields:
+                    field_type = field['field_type']
+                    if field_type == 'text':
+                        example_row[field['display_name']] = 'Example text'
+                    elif field_type == 'number':
+                        example_row[field['display_name']] = '123.45'
+                    elif field_type == 'date':
+                        example_row[field['display_name']] = '2025-12-25'
+                    elif field_type == 'boolean':
+                        example_row[field['display_name']] = 'true'
+                    elif field_type == 'email':
+                        example_row[field['display_name']] = 'example@email.com'
+                    elif field_type == 'phone':
+                        example_row[field['display_name']] = '+1234567890'
+                    elif field_type == 'url':
+                        example_row[field['display_name']] = 'https://example.com'
+                    elif field_type == 'dropdown':
+                        example_row[field['display_name']] = 'Option1'
+                    elif field_type == 'multiselect':
+                        example_row[field['display_name']] = 'Option1, Option2'
+                    else:
+                        example_row[field['display_name']] = f'({field_type})'
+
+                writer.writerow(example_row)
+
+            QMessageBox.information(
+                self,
+                "Template Exported",
+                f"Import template exported to:\n{file_path}\n\n"
+                "The first row contains example data showing the expected format.\n"
+                "Delete the example row and add your data below the header."
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Failed to export template:\n{str(e)}"
+            )
+
+    def import_data(self):
+        """Import data from CSV file"""
+        from import_dialog import ImportDialog
+
+        # Get table display name
+        table = self.db.get_table(self.table_id)
+        table_display_name = table['display_name'] if table else self.table_name
+
+        # Show import dialog
+        dialog = ImportDialog(
+            self.db,
+            self.storage,
+            self.table_id,
+            self.table_name,
+            table_display_name,
+            self.fields,
+            parent=self
+        )
+
+        if dialog.exec():
+            # Reload records after import
+            self.load_records()
