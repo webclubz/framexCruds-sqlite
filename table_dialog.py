@@ -167,7 +167,8 @@ class TableDialog(QDialog):
             if field_data.get('field_type') in ['reference', 'multireference'] and not options_input.text():
                 ref_data = {
                     'table_id': field_data.get('reference_table_id'),
-                    'display_field': field_data.get('reference_display_field')
+                    'display_field': field_data.get('reference_display_field'),
+                    'cascade_delete': field_data.get('cascade_delete', False)
                 }
                 try:
                     import json as _json
@@ -235,13 +236,24 @@ class TableDialog(QDialog):
                     # Old format - just table ID
                     current_table_id = options_input.text()
 
-            dialog = ReferenceDialog(self.db, current_table_id, current_display_field, parent=self)
+            # Also get current cascade_delete setting if present
+            current_cascade_delete = False
+            if options_input.text():
+                try:
+                    import json
+                    data = json.loads(options_input.text())
+                    current_cascade_delete = data.get('cascade_delete', False)
+                except:
+                    pass
+
+            dialog = ReferenceDialog(self.db, current_table_id, current_display_field, current_cascade_delete, parent=self)
             if dialog.exec():
-                # Store as JSON with both table_id and display_field
+                # Store as JSON with table_id, display_field, and cascade_delete
                 import json
                 ref_data = {
                     'table_id': dialog.get_table_id(),
-                    'display_field': dialog.get_display_field()
+                    'display_field': dialog.get_display_field(),
+                    'cascade_delete': dialog.get_cascade_delete()
                 }
                 options_input.setText(json.dumps(ref_data))
 
@@ -321,6 +333,7 @@ class TableDialog(QDialog):
 
                     reference_table_id = None
                     reference_display_field = None
+                    cascade_delete = False
                     if field_type in ['reference', 'multireference']:
                         if options:
                             try:
@@ -329,6 +342,7 @@ class TableDialog(QDialog):
                                 ref_data = json.loads(options)
                                 reference_table_id = ref_data.get('table_id')
                                 reference_display_field = ref_data.get('display_field')
+                                cascade_delete = ref_data.get('cascade_delete', False)
                             except:
                                 # Old format - just table ID
                                 try:
@@ -343,6 +357,7 @@ class TableDialog(QDialog):
                             if existing:
                                 reference_table_id = existing.get('reference_table_id')
                                 reference_display_field = existing.get('reference_display_field')
+                                cascade_delete = existing.get('cascade_delete', False)
 
                     # Check if field already exists
                     if field_name not in existing_fields:
@@ -350,7 +365,7 @@ class TableDialog(QDialog):
                         self.db.add_field(
                             self.table_id, field_name, field_display,
                             field_type, is_required, is_unique, show_in_list,
-                            options, reference_table_id, reference_display_field, row
+                            options, reference_table_id, reference_display_field, row, cascade_delete
                         )
                     else:
                         # Update existing field metadata
@@ -359,10 +374,10 @@ class TableDialog(QDialog):
                             UPDATE _fields
                             SET display_name = ?, field_type = ?, is_required = ?, is_unique = ?,
                                 show_in_list = ?, options = ?, reference_table_id = ?,
-                                reference_display_field = ?, position = ?
+                                reference_display_field = ?, position = ?, cascade_delete = ?
                             WHERE id = ?
                         """, (field_display, field_type, is_required, is_unique, show_in_list,
-                              options, reference_table_id, reference_display_field, row, field_id))
+                              options, reference_table_id, reference_display_field, row, cascade_delete, field_id))
                         self.db.connection.commit()
 
                 # Delete fields that were removed from the UI
@@ -392,6 +407,7 @@ class TableDialog(QDialog):
 
                     reference_table_id = None
                     reference_display_field = None
+                    cascade_delete = False
                     if field_type in ['reference', 'multireference']:
                         if options:
                             try:
@@ -400,6 +416,7 @@ class TableDialog(QDialog):
                                 ref_data = json.loads(options)
                                 reference_table_id = ref_data.get('table_id')
                                 reference_display_field = ref_data.get('display_field')
+                                cascade_delete = ref_data.get('cascade_delete', False)
                             except:
                                 # Old format - just table ID
                                 try:
@@ -412,7 +429,7 @@ class TableDialog(QDialog):
                     self.db.add_field(
                         table_id, field_name, field_display,
                         field_type, is_required, is_unique, show_in_list,
-                        options, reference_table_id, reference_display_field, row
+                        options, reference_table_id, reference_display_field, row, cascade_delete
                     )
 
             self.accept()
@@ -472,11 +489,12 @@ class OptionsDialog(QDialog):
 class ReferenceDialog(QDialog):
     """Dialog for selecting reference table and display field"""
 
-    def __init__(self, db: DatabaseManager, current_table_id: str, current_display_field: str = None, parent=None):
+    def __init__(self, db: DatabaseManager, current_table_id: str, current_display_field: str = None,
+                 current_cascade_delete: bool = False, parent=None):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("Select Reference Table")
-        self.resize(350, 200)
+        self.resize(350, 250)
 
         layout = QVBoxLayout(self)
 
@@ -514,6 +532,11 @@ class ReferenceDialog(QDialog):
 
         # Populate fields for initially selected table
         self.on_table_changed()
+
+        # Cascade delete option
+        self.cascade_delete_checkbox = QCheckBox("Cascade delete (delete this record when referenced record is deleted)")
+        self.cascade_delete_checkbox.setChecked(current_cascade_delete)
+        layout.addWidget(self.cascade_delete_checkbox)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -555,3 +578,7 @@ class ReferenceDialog(QDialog):
     def get_display_field(self) -> str:
         """Get selected display field name"""
         return self.field_combo.currentData()
+
+    def get_cascade_delete(self) -> bool:
+        """Get cascade delete option"""
+        return self.cascade_delete_checkbox.isChecked()

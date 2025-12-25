@@ -89,6 +89,16 @@ class DatabaseManager:
 
         self.connection.commit()
 
+        # Migration: Add cascade_delete column if it doesn't exist
+        try:
+            self.cursor.execute("SELECT cascade_delete FROM _fields LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            self.cursor.execute("""
+                ALTER TABLE _fields ADD COLUMN cascade_delete BOOLEAN DEFAULT 0
+            """)
+            self.connection.commit()
+
     def create_table(self, name: str, display_name: str) -> int:
         """Create a new CRUD table"""
         # Insert table metadata
@@ -146,7 +156,8 @@ class DatabaseManager:
                   field_type: str, is_required: bool = False,
                   is_unique: bool = False, show_in_list: bool = True,
                   options: str = None, reference_table_id: int = None,
-                  reference_display_field: str = None, position: int = 0):
+                  reference_display_field: str = None, position: int = 0,
+                  cascade_delete: bool = False):
         """Add a field to a table"""
         # Get table name
         table = self.get_table(table_id)
@@ -161,10 +172,10 @@ class DatabaseManager:
         self.cursor.execute("""
             INSERT INTO _fields (table_id, name, display_name, field_type,
                                 is_required, is_unique, show_in_list, options, reference_table_id,
-                                reference_display_field, position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                reference_display_field, position, cascade_delete)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (table_id, name, display_name, field_type, is_required,
-              is_unique, show_in_list, options, reference_table_id, reference_display_field, position))
+              is_unique, show_in_list, options, reference_table_id, reference_display_field, position, cascade_delete))
 
         # Only add column to actual table if it doesn't exist
         if name not in existing_columns:
@@ -246,7 +257,45 @@ class DatabaseManager:
         self.connection.commit()
 
     def delete_record(self, table_name: str, record_id: int):
-        """Delete a record"""
+        """Delete a record and handle cascade deletes"""
+        # Get the table ID
+        table = self.cursor.execute("SELECT id FROM _tables WHERE name = ?", (table_name,)).fetchone()
+        if not table:
+            return
+
+        table_id = table['id']
+
+        # Find all reference fields in other tables that point to this table with cascade delete enabled
+        all_tables = self.get_tables()
+
+        for other_table in all_tables:
+            other_table_id = other_table['id']
+            other_table_name = other_table['name']
+
+            # Get fields for this table
+            fields = self.get_fields(other_table_id)
+
+            # Find reference fields pointing to our table with cascade_delete=True
+            for field in fields:
+                if (field['field_type'] == 'reference' and
+                    field.get('reference_table_id') == table_id and
+                    field.get('cascade_delete', False)):
+
+                    # Find records in this table that reference our record
+                    where_clause = f"{field['name']} = ?"
+                    where_params = (record_id,)
+
+                    referencing_records = self.get_records(
+                        other_table_name,
+                        where_clause=where_clause,
+                        where_params=where_params
+                    )
+
+                    # Delete each referencing record (recursively handles their cascade deletes)
+                    for ref_record in referencing_records:
+                        self.delete_record(other_table_name, ref_record['id'])
+
+        # Delete the record itself
         self.cursor.execute(f"DELETE FROM {table_name} WHERE id = ?", (record_id,))
         self.connection.commit()
 

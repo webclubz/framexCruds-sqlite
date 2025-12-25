@@ -2,7 +2,8 @@
 Record preview dialog with print functionality
 """
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QTextEdit, QLabel, QMessageBox)
+                             QTextEdit, QLabel, QMessageBox, QTabWidget,
+                             QTableWidget, QTableWidgetItem, QWidget)
 from PyQt6.QtCore import Qt, QUrl, QMarginsF
 from PyQt6.QtGui import QTextDocument, QFont, QPageLayout, QPageSize
 from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
@@ -39,6 +40,7 @@ class RecordPreviewDialog(QDialog):
             pass
 
         self.load_record_preview()
+        self.load_related_records()
 
     def get_reference_display_name(self, record: dict, table_id: int, display_field_name: str = None) -> str:
         """Return a human-friendly name for a referenced record.
@@ -79,12 +81,38 @@ class RecordPreviewDialog(QDialog):
         """Initialize the user interface"""
         layout = QVBoxLayout(self)
 
-        # Preview area
+        # Create tab widget
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # Tab 1: Record Details
+        details_tab = QWidget()
+        details_layout = QVBoxLayout(details_tab)
+
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
         font = QFont("Monospace", 10)
         self.preview_text.setFont(font)
-        layout.addWidget(self.preview_text)
+        details_layout.addWidget(self.preview_text)
+
+        self.tabs.addTab(details_tab, "Record Details")
+
+        # Tab 2: Related Records
+        related_tab = QWidget()
+        related_layout = QVBoxLayout(related_tab)
+
+        # Info label
+        self.related_info_label = QLabel("Records that reference this record:")
+        related_layout.addWidget(self.related_info_label)
+
+        # Table for related records
+        self.related_table = QTableWidget()
+        self.related_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.related_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.related_table.horizontalHeader().setStretchLastSection(True)
+        related_layout.addWidget(self.related_table)
+
+        self.tabs.addTab(related_tab, "Related Records")
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -118,17 +146,17 @@ class RecordPreviewDialog(QDialog):
         <html>
         <head>
             <style>
-                body {{ font-family: 'DejaVu Sans', Arial, sans-serif; padding: 12px 16px; color: #222; }}
+                body {{ font-family: 'DejaVu Sans', Arial, sans-serif; padding: 12px 16px; color: #222; font-size: 12pt; }}
                 .container {{ max-width: 900px; margin: 0 auto; }}
-                h1 {{ color: #222; border-bottom: 2px solid #444; padding-bottom: 8px; margin-bottom: 14px; font-size: 20pt; }}
-                .record-info {{ margin-bottom: 18px; color: #555; font-size: 10pt; }}
+                h1 {{ color: #222; border-bottom: 2px solid #444; padding-bottom: 8px; margin-bottom: 14px; font-size: 24pt; }}
+                .record-info {{ margin-bottom: 18px; color: #555; font-size: 11pt; }}
                 .field {{ margin-bottom: 12px; page-break-inside: avoid; border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px 10px; background: #fafafa; }}
-                .field-label {{ font-weight: bold; color: #333; margin-bottom: 4px; }}
-                .field-value {{ color: #111; padding: 6px 8px; background-color: #fff; border-left: 3px solid #777; margin-top: 4px; }}
+                .field-label {{ font-weight: bold; color: #333; margin-bottom: 4px; font-size: 12pt; }}
+                .field-value {{ color: #111; padding: 6px 8px; background-color: #fff; border-left: 3px solid #777; margin-top: 4px; font-size: 12pt; }}
                 .image-block {{ text-align: center; margin: 6px 0 4px 0; }}
                 .image-block img {{ max-width: 600px; width: 100%; height: auto; border: 1px solid #ccc; }}
-                .image-info {{ color: #666; font-style: italic; font-size: 9pt; margin-top: 4px; }}
-                @media print {{ body {{ padding: 0; }} .field {{ background: #fff; }} .image-block img {{ max-width: 700px; }} }}
+                .image-info {{ color: #666; font-style: italic; font-size: 10pt; margin-top: 4px; }}
+                @media print {{ body {{ padding: 0; font-size: 12pt; }} .field {{ background: #fff; }} .image-block img {{ max-width: 700px; }} }}
             </style>
         </head>
         <body>
@@ -310,3 +338,91 @@ class RecordPreviewDialog(QDialog):
                 "Export Successful",
                 f"Record exported to:\n{file_path}"
             )
+
+    def load_related_records(self):
+        """Load records from other tables that reference this record"""
+        # Find all tables and their reference fields pointing to this table
+        all_tables = self.db.get_all_tables()
+        related_data = []
+
+        for table in all_tables:
+            table_id = table['id']
+            table_name = table['name']
+            table_display_name = table['display_name']
+
+            # Get fields for this table
+            fields = self.db.get_fields(table_id)
+
+            # Find reference fields pointing to our table
+            for field in fields:
+                if field['field_type'] == 'reference' and field.get('reference_table_id') == self.table_id:
+                    # This field references our table
+                    # Find records where this field equals our record_id
+                    where_clause = f"{field['name']} = ?"
+                    where_params = (self.record_id,)
+
+                    referencing_records = self.db.get_records(
+                        table_name,
+                        where_clause=where_clause,
+                        where_params=where_params
+                    )
+
+                    for rec in referencing_records:
+                        related_data.append({
+                            'table_name': table_display_name,
+                            'field_name': field['display_name'],
+                            'record_id': rec['id'],
+                            'record': rec,
+                            'source_table': table_name,
+                            'source_table_id': table_id
+                        })
+
+        # Update the related records table
+        if not related_data:
+            self.related_info_label.setText("No records reference this record.")
+            self.related_table.setRowCount(0)
+            return
+
+        self.related_info_label.setText(f"Found {len(related_data)} record(s) referencing this record:")
+
+        # Set up table
+        self.related_table.setColumnCount(4)
+        self.related_table.setHorizontalHeaderLabels(['Table', 'Field', 'Record ID', 'Preview'])
+        self.related_table.setRowCount(len(related_data))
+
+        for row_idx, data in enumerate(related_data):
+            # Table name
+            table_item = QTableWidgetItem(data['table_name'])
+            self.related_table.setItem(row_idx, 0, table_item)
+
+            # Field name
+            field_item = QTableWidgetItem(data['field_name'])
+            self.related_table.setItem(row_idx, 1, field_item)
+
+            # Record ID
+            id_item = QTableWidgetItem(str(data['record_id']))
+            id_item.setData(Qt.ItemDataRole.UserRole, {
+                'table_name': data['source_table'],
+                'table_id': data['source_table_id'],
+                'record_id': data['record_id']
+            })
+            self.related_table.setItem(row_idx, 2, id_item)
+
+            # Preview - get first text field value
+            record = data['record']
+            preview_text = ""
+            source_fields = self.db.get_fields(data['source_table_id'])
+            for f in source_fields:
+                if f['field_type'] in ['text', 'email', 'url', 'phone'] and f['name'] != 'id':
+                    value = record.get(f['name'])
+                    if value:
+                        preview_text = str(value)[:50]
+                        break
+
+            if not preview_text:
+                preview_text = f"Record #{data['record_id']}"
+
+            preview_item = QTableWidgetItem(preview_text)
+            self.related_table.setItem(row_idx, 3, preview_item)
+
+        self.related_table.resizeColumnsToContents()
